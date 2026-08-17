@@ -9,8 +9,7 @@ const SHEET_HEADERS = [
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
-    .setTitle('現勘資料｜手機現場紀錄')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+    .setTitle('現勘資料｜手機現場紀錄');
 }
 
 function include(filename) {
