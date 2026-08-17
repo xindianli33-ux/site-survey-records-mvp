@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#205f4f">
+  <title>現勘資料｜手機現場紀錄</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar"><div><small>戶外現勘・手機定位</small><h1>現勘資料</h1></div><span id="network">檢查網路中</span></header>
+    <section class="account-card"><div class="avatar">G</div><div><b id="account">尚未登入 Google</b><small>照片存入 Drive，資料寫入 Sheet</small></div><button id="login">Google 登入</button></section>
+    <section class="survey-card"><div class="date-badge"><b id="day">--</b><span id="month">--</span></div><div><p>今日現勘</p><h2 id="date">載入日期中</h2><p>拍照後自動取得手機目前座標。</p></div></section>
+    <section class="actions">
+      <button class="primary" id="camera"><span>＋</span> 拍照</button>
+      <button class="secondary" id="library"><span>▧</span> 選取照片</button>
+      <input hidden id="cameraInput" type="file" accept="image/*" capture="environment">
+      <input hidden id="libraryInput" type="file" accept="image/*">
+    </section>
+    <div class="location-card"><b id="locationStatus">尚未讀取位置</b><button id="locate">重新定位</button></div>
+    <div id="notice" hidden></div>
+    <dialog id="photoDialog">
+      <form id="photoForm">
+        <img id="preview" alt="照片預覽">
+        <h2>照片說明</h2>
+        <textarea id="description" required maxlength="500" rows="4" placeholder="例如：地下室東側牆面滲水"></textarea>
+        <p id="photoLocation">準備讀取手機座標…</p>
+        <div class="dialog-actions"><button type="button" id="cancel">取消</button><button class="primary" type="submit" id="save">保存並上傳</button></div>
+      </form>
+    </dialog>
+    <section class="records"><div class="section-heading"><div><small>雲端紀錄</small><h2>最近現勘照片</h2></div><button id="refresh">重新整理</button></div><div id="recordList"><p class="empty">登入後讀取資料</p></div></section>
+  </main>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="./app.js"></script>
+</body>
+</html>
