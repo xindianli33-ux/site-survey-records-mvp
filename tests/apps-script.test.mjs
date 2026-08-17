@@ -30,7 +30,8 @@ test("mobile client keeps an IndexedDB offline queue", async () => {
   assert.match(index, /photoDescription/);
   assert.match(client, /readExifGps/);
   assert.match(client, /compressImage/);
-  assert.match(client, /coordinateSource:exifPosition \? 'EXIF'/);
+  assert.match(client, /source:'EXIF'/);
+  assert.match(client, /已取得照片，請輸入文字說明/);
   assert.match(client, /memoryDrafts:new Map/);
   assert.match(client, /typeof dialog\.showModal/);
 });

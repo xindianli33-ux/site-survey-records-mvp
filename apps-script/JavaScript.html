@@ -71,27 +71,22 @@
     if (!files.length) return;
     let saved = 0;
     for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
-      if (file.size > 15 * 1024 * 1024) {
-        showNotice(`${file.name} 超過 15 MB，未加入`, true);
+      if (file.type && !file.type.startsWith('image/')) continue;
+      if (file.size > 40 * 1024 * 1024) {
+        showNotice(`${file.name || '照片'} 超過 40 MB，未加入`, true);
         continue;
       }
-      const exifPosition = await readExifGps(file).catch(() => null);
-      const devicePosition = !exifPosition && $('gpsEnabled').checked ? await getPosition() : null;
-      const location = exifPosition || (devicePosition ? {
-        latitude:devicePosition.coords.latitude,
-        longitude:devicePosition.coords.longitude,
-      } : null);
-      const description = await requestPhotoDetails(file, location, exifPosition ? 'EXIF' : devicePosition ? 'DEVICE' : 'NONE');
-      if (description == null) continue;
+      showNotice('已取得照片，請輸入文字說明');
+      const details = await requestPhotoDetails(file);
+      if (!details) continue;
       const uploadFile = await compressImage(file);
       const clientId = `${Date.now()}-${crypto.randomUUID()}`;
       await putDraft({
         clientId, file:uploadFile, fileName:normalizedUploadName(file.name), mimeType:uploadFile.type || 'image/jpeg',
-        description,
-        latitude:location?.latitude ?? null,
-        longitude:location?.longitude ?? null,
-        coordinateSource:exifPosition ? 'EXIF' : devicePosition ? 'DEVICE' : 'NONE',
+        description:details.description,
+        latitude:details.location?.latitude ?? null,
+        longitude:details.location?.longitude ?? null,
+        coordinateSource:details.source,
         capturedAt:new Date().toISOString(), status:'queued', error:'',
       });
       saved += 1;
@@ -102,16 +97,20 @@
     if (navigator.onLine) syncQueue();
   }
 
-  function requestPhotoDetails(file, location, source) {
+  function requestPhotoDetails(file) {
     return new Promise((resolve) => {
       const dialog = $('photoDialog');
       const form = $('photoForm');
       const previewUrl = URL.createObjectURL(file);
       $('photoPreview').src = previewUrl;
       $('photoDescription').value = '';
-      $('coordinateResult').textContent = location
-        ? `${source === 'EXIF' ? '照片內建座標' : '手機目前座標'}：${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`
-        : '照片沒有座標，且未取得手機位置';
+      $('coordinateResult').textContent = '正在背景讀取照片座標…';
+      const coordinatePromise = resolvePhotoLocation(file).then((result) => {
+        $('coordinateResult').textContent = result.location
+          ? `${result.source === 'EXIF' ? '照片內建座標' : '手機目前座標'}：${result.location.latitude.toFixed(6)}, ${result.location.longitude.toFixed(6)}`
+          : '照片沒有座標，且未取得手機位置';
+        return result;
+      });
       const finish = (value) => {
         URL.revokeObjectURL(previewUrl);
         form.onsubmit = null;
@@ -120,17 +119,28 @@
         else dialog.removeAttribute('open');
         resolve(value);
       };
-      form.onsubmit = (event) => {
+      form.onsubmit = async (event) => {
         event.preventDefault();
         const value = $('photoDescription').value.trim();
         if (!value) return showNotice('請先輸入照片說明', true);
-        finish(value);
+        const coordinates = await coordinatePromise;
+        finish({ description:value, ...coordinates });
       };
       $('cancelPhoto').onclick = () => finish(null);
       if (typeof dialog.showModal === 'function') dialog.showModal();
       else dialog.setAttribute('open', '');
       $('photoDescription').focus();
     });
+  }
+
+  async function resolvePhotoLocation(file) {
+    const exifPosition = await readExifGps(file).catch(() => null);
+    if (exifPosition) return { location:exifPosition, source:'EXIF' };
+    const devicePosition = $('gpsEnabled').checked ? await getPosition() : null;
+    return devicePosition ? {
+      location:{ latitude:devicePosition.coords.latitude, longitude:devicePosition.coords.longitude },
+      source:'DEVICE',
+    } : { location:null, source:'NONE' };
   }
 
   function normalizedUploadName(name) {
