@@ -35,6 +35,8 @@ test("mobile client keeps an IndexedDB offline queue", async () => {
   assert.match(client, /Promise\.race/);
   assert.match(client, /typeof createImageBitmap === 'function'/);
   assert.match(client, /照片保存失敗/);
+  assert.match(client, /瀏覽器定位逾時/);
+  assert.match(client, /網站定位權限遭拒/);
   assert.match(client, /source:'EXIF'/);
   assert.match(client, /已取得照片，請輸入文字說明/);
   assert.match(client, /memoryDrafts:new Map/);

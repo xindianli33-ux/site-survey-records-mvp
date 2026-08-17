@@ -2,7 +2,7 @@
 (() => {
   const DB_NAME = 'site-survey-offline-v1';
   const STORE_NAME = 'pendingPhotos';
-  const state = { db: null, syncing: false, records: [], memoryDrafts:new Map() };
+  const state = { db: null, syncing: false, records: [], memoryDrafts:new Map(), locationError:'' };
   const $ = (id) => document.getElementById(id);
 
   window.addEventListener('load', init);
@@ -110,7 +110,7 @@
       const coordinatePromise = resolvePhotoLocation(file).then((result) => {
         $('coordinateResult').textContent = result.location
           ? `${result.source === 'EXIF' ? '照片內建座標' : '手機目前座標'}：${result.location.latitude.toFixed(6)}, ${result.location.longitude.toFixed(6)}`
-          : '照片沒有座標，且未取得手機位置';
+          : `未取得座標：${result.reason || '照片沒有 GPS，手機定位也沒有回應'}`;
         return result;
       });
       const finish = (value) => {
@@ -130,7 +130,7 @@
         submitButton.textContent = '保存中…';
         const coordinates = await Promise.race([
           coordinatePromise,
-          new Promise((resolve) => setTimeout(() => resolve({ location:null, source:'NONE' }), 4000)),
+          new Promise((resolve) => setTimeout(() => resolve({ location:null, source:'NONE', reason:'定位等待超過 7 秒' }), 7000)),
         ]);
         submitButton.disabled = false;
         submitButton.textContent = '保存並上傳';
@@ -150,7 +150,7 @@
     return devicePosition ? {
       location:{ latitude:devicePosition.coords.latitude, longitude:devicePosition.coords.longitude },
       source:'DEVICE',
-    } : { location:null, source:'NONE' };
+    } : { location:null, source:'NONE', reason:state.locationError || ($('gpsEnabled').checked ? '手機沒有提供定位結果' : '已關閉座標記錄') };
   }
 
   function normalizedUploadName(name) {
@@ -239,8 +239,24 @@
 
   function getPosition() {
     return new Promise((resolve) => {
-      if (!navigator.geolocation) return resolve(null);
-      navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), { enableHighAccuracy:true, timeout:10000, maximumAge:30000 });
+      if (!navigator.geolocation) {
+        state.locationError = '瀏覽器不支援定位';
+        return resolve(null);
+      }
+      let completed = false;
+      const finish = (position, message = '') => {
+        if (completed) return;
+        completed = true;
+        clearTimeout(hardTimeout);
+        state.locationError = message;
+        resolve(position);
+      };
+      const hardTimeout = setTimeout(() => finish(null, '瀏覽器定位逾時，請確認網站定位權限'), 6500);
+      navigator.geolocation.getCurrentPosition(
+        (position) => finish(position),
+        (error) => finish(null, error.code === 1 ? '網站定位權限遭拒' : error.code === 2 ? '手機目前無法判定位置' : '手機定位逾時'),
+        { enableHighAccuracy:true, timeout:6000, maximumAge:30000 },
+      );
     });
   }
 
