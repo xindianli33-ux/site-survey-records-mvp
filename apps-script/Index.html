@@ -36,6 +36,20 @@
 
       <div class="notice" id="notice" role="status" hidden></div>
 
+      <dialog class="photo-dialog" id="photoDialog">
+        <form method="dialog" id="photoForm">
+          <img id="photoPreview" alt="待上傳照片預覽">
+          <h2>照片說明</h2>
+          <label for="photoDescription">請輸入現場狀況或施工說明</label>
+          <textarea id="photoDescription" rows="4" maxlength="500" placeholder="例如：地下室東側牆面滲水"></textarea>
+          <p class="coordinate-result" id="coordinateResult">正在讀取照片座標…</p>
+          <div class="dialog-actions">
+            <button type="button" class="secondary" id="cancelPhoto">取消</button>
+            <button type="submit" class="primary">保存並上傳</button>
+          </div>
+        </form>
+      </dialog>
+
       <section class="queue-card" id="queueSection" hidden>
         <div class="section-heading"><div><p class="eyebrow">手機暫存</p><h2><span id="queueCount">0</span> 筆等待同步</h2></div><button id="syncButton">立即同步</button></div>
         <div id="queueList" class="record-list"></div>

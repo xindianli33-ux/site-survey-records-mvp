@@ -69,27 +69,138 @@
     const files = Array.from(fileList || []);
     input.value = '';
     if (!files.length || !state.db) return;
-    let position = null;
-    if ($('gpsEnabled').checked) position = await getPosition();
+    let saved = 0;
     for (const file of files) {
       if (!file.type.startsWith('image/')) continue;
       if (file.size > 15 * 1024 * 1024) {
         showNotice(`${file.name} 超過 15 MB，未加入`, true);
         continue;
       }
+      const exifPosition = await readExifGps(file).catch(() => null);
+      const devicePosition = !exifPosition && $('gpsEnabled').checked ? await getPosition() : null;
+      const location = exifPosition || (devicePosition ? {
+        latitude:devicePosition.coords.latitude,
+        longitude:devicePosition.coords.longitude,
+      } : null);
+      const description = await requestPhotoDetails(file, location, exifPosition ? 'EXIF' : devicePosition ? 'DEVICE' : 'NONE');
+      if (description == null) continue;
+      const uploadFile = await compressImage(file);
       const clientId = `${Date.now()}-${crypto.randomUUID()}`;
       await putDraft({
-        clientId, file, fileName:file.name, mimeType:file.type,
-        description:file.name.replace(/\.[^.]+$/, ''),
-        latitude:position?.coords.latitude ?? null,
-        longitude:position?.coords.longitude ?? null,
-        coordinateSource:position ? 'DEVICE' : 'NONE',
+        clientId, file:uploadFile, fileName:normalizedUploadName(file.name), mimeType:uploadFile.type || 'image/jpeg',
+        description,
+        latitude:location?.latitude ?? null,
+        longitude:location?.longitude ?? null,
+        coordinateSource:exifPosition ? 'EXIF' : devicePosition ? 'DEVICE' : 'NONE',
         capturedAt:new Date().toISOString(), status:'queued', error:'',
       });
+      saved += 1;
     }
-    showNotice(`已保存 ${files.length} 張照片到手機`);
+    if (!saved) return;
+    showNotice(`已保存 ${saved} 張照片到手機，準備同步`);
     await renderQueue();
     if (navigator.onLine) syncQueue();
+  }
+
+  function requestPhotoDetails(file, location, source) {
+    return new Promise((resolve) => {
+      const dialog = $('photoDialog');
+      const form = $('photoForm');
+      const previewUrl = URL.createObjectURL(file);
+      $('photoPreview').src = previewUrl;
+      $('photoDescription').value = '';
+      $('coordinateResult').textContent = location
+        ? `${source === 'EXIF' ? '照片內建座標' : '手機目前座標'}：${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`
+        : '照片沒有座標，且未取得手機位置';
+      const finish = (value) => {
+        URL.revokeObjectURL(previewUrl);
+        form.onsubmit = null;
+        $('cancelPhoto').onclick = null;
+        if (dialog.open) dialog.close();
+        resolve(value);
+      };
+      form.onsubmit = (event) => {
+        event.preventDefault();
+        const value = $('photoDescription').value.trim();
+        if (!value) return showNotice('請先輸入照片說明', true);
+        finish(value);
+      };
+      $('cancelPhoto').onclick = () => finish(null);
+      dialog.showModal();
+      $('photoDescription').focus();
+    });
+  }
+
+  function normalizedUploadName(name) {
+    return `${String(name || 'survey-photo').replace(/\.[^.]+$/, '')}.jpg`;
+  }
+
+  async function compressImage(file) {
+    const bitmap = await createImageBitmap(file);
+    const maxSide = 2200;
+    const ratio = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
+    canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    return new Promise((resolve, reject) => canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error('照片壓縮失敗')),
+      'image/jpeg', 0.84,
+    ));
+  }
+
+  async function readExifGps(file) {
+    if (!/jpe?g/i.test(file.type) && !/\.jpe?g$/i.test(file.name)) return null;
+    const view = new DataView(await file.arrayBuffer());
+    if (view.byteLength < 4 || view.getUint16(0) !== 0xffd8) return null;
+    let offset = 2;
+    while (offset + 4 < view.byteLength) {
+      if (view.getUint8(offset) !== 0xff) break;
+      const marker = view.getUint8(offset + 1);
+      const length = view.getUint16(offset + 2);
+      if (marker === 0xe1 && length >= 10 && view.getUint32(offset + 4) === 0x45786966) {
+        return parseExifGps(view, offset + 10);
+      }
+      offset += 2 + length;
+    }
+    return null;
+  }
+
+  function parseExifGps(view, tiff) {
+    const little = view.getUint16(tiff) === 0x4949;
+    const u16 = (at) => view.getUint16(at, little);
+    const u32 = (at) => view.getUint32(at, little);
+    const readEntries = (start) => {
+      const result = new Map();
+      const count = u16(start);
+      for (let i = 0; i < count; i += 1) {
+        const at = start + 2 + i * 12;
+        result.set(u16(at), { type:u16(at + 2), count:u32(at + 4), valueAt:at + 8, value:u32(at + 8) });
+      }
+      return result;
+    };
+    const ifd0 = readEntries(tiff + u32(tiff + 4));
+    const gpsPointer = ifd0.get(0x8825);
+    if (!gpsPointer) return null;
+    const gps = readEntries(tiff + gpsPointer.value);
+    const ascii = (tag) => {
+      const item = gps.get(tag); if (!item) return '';
+      const at = item.count <= 4 ? item.valueAt : tiff + item.value;
+      return String.fromCharCode(view.getUint8(at));
+    };
+    const degrees = (tag) => {
+      const item = gps.get(tag); if (!item || item.type !== 5 || item.count < 3) return null;
+      const at = tiff + item.value;
+      const part = (index) => u32(at + index * 8) / u32(at + index * 8 + 4);
+      return part(0) + part(1) / 60 + part(2) / 3600;
+    };
+    let latitude = degrees(0x0002);
+    let longitude = degrees(0x0004);
+    if (latitude == null || longitude == null) return null;
+    if (ascii(0x0001) === 'S') latitude *= -1;
+    if (ascii(0x0003) === 'W') longitude *= -1;
+    return { latitude, longitude };
   }
 
   function getPosition() {
