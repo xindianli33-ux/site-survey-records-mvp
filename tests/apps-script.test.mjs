@@ -22,8 +22,9 @@ test("mobile client keeps an IndexedDB offline queue", async () => {
     readFile(new URL("Index.html", root), "utf8"),
     readFile(new URL("JavaScript.html", root), "utf8"),
   ]);
-  assert.match(index, /class="primary camera-launch"/);
-  assert.match(index, /id="cameraInput" type="file" accept="image\/\*">/);
+  assert.match(index, /id="cameraButton" type="button"/);
+  assert.match(index, /id="cameraInput" hidden type="file" accept="image\/\*">/);
+  assert.match(client, /\$\('cameraButton'\)\.onclick = \(\) => \$\('cameraInput'\)\.click\(\)/);
   assert.match(index, /離線可暫存/);
   assert.match(client, /indexedDB\.open/);
   assert.match(client, /window\.addEventListener\('online'/);
