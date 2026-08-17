@@ -2,7 +2,7 @@
 (() => {
   const DB_NAME = 'site-survey-offline-v1';
   const STORE_NAME = 'pendingPhotos';
-  const state = { db: null, syncing: false, records: [] };
+  const state = { db: null, syncing: false, records: [], memoryDrafts:new Map() };
   const $ = (id) => document.getElementById(id);
 
   window.addEventListener('load', init);
@@ -17,7 +17,7 @@
       state.db = await openDatabase();
       await renderQueue();
     } catch (error) {
-      showNotice('手機離線儲存無法啟用：' + error.message, true);
+      showNotice('此瀏覽器無法使用離線暫存；有網路時仍可直接上傳', true);
     }
     loadAppInfo();
     loadRecords();
@@ -68,7 +68,7 @@
   async function queueFiles(fileList, input) {
     const files = Array.from(fileList || []);
     input.value = '';
-    if (!files.length || !state.db) return;
+    if (!files.length) return;
     let saved = 0;
     for (const file of files) {
       if (!file.type.startsWith('image/')) continue;
@@ -116,7 +116,8 @@
         URL.revokeObjectURL(previewUrl);
         form.onsubmit = null;
         $('cancelPhoto').onclick = null;
-        if (dialog.open) dialog.close();
+        if (typeof dialog.close === 'function' && dialog.open) dialog.close();
+        else dialog.removeAttribute('open');
         resolve(value);
       };
       form.onsubmit = (event) => {
@@ -126,7 +127,8 @@
         finish(value);
       };
       $('cancelPhoto').onclick = () => finish(null);
-      dialog.showModal();
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
       $('photoDescription').focus();
     });
   }
@@ -211,7 +213,7 @@
   }
 
   async function syncQueue() {
-    if (state.syncing || !navigator.onLine || !state.db) return;
+    if (state.syncing || !navigator.onLine) return;
     const drafts = await getDrafts();
     if (!drafts.length) return;
     state.syncing = true;
@@ -301,8 +303,16 @@
       request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
     });
   }
-  const putDraft = (draft) => transact('readwrite', (store) => store.put(draft));
-  const getDrafts = () => transact('readonly', (store) => store.getAll());
-  const deleteDraft = (id) => transact('readwrite', (store) => store.delete(id));
+  const putDraft = (draft) => {
+    if (state.db) return transact('readwrite', (store) => store.put(draft));
+    state.memoryDrafts.set(draft.clientId, draft); return Promise.resolve(draft.clientId);
+  };
+  const getDrafts = () => state.db
+    ? transact('readonly', (store) => store.getAll())
+    : Promise.resolve(Array.from(state.memoryDrafts.values()));
+  const deleteDraft = (id) => {
+    if (state.db) return transact('readwrite', (store) => store.delete(id));
+    state.memoryDrafts.delete(id); return Promise.resolve();
+  };
 })();
 </script>
