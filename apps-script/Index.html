@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <base target="_top">
+    <?!= include('Stylesheet'); ?>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <span class="eyebrow">戶外現勘・離線可暫存</span>
+          <h1>現勘資料</h1>
+        </div>
+        <span class="connection" id="connectionStatus">檢查網路中</span>
+      </header>
+
+      <section class="account-card">
+        <div class="avatar">G</div>
+        <div><b id="accountName">Google 帳號</b><small>Drive 與 Sheet 使用相同帳號</small></div>
+        <span class="secure">僅自己</span>
+      </section>
+
+      <section class="survey-card">
+        <div class="date-badge"><b id="dateDay">--</b><span id="dateMonth">--</span></div>
+        <div><p class="muted">今日現勘</p><h2 id="dateTitle">載入日期中</h2><p>拍照後先存手機，恢復網路時自動同步。</p></div>
+      </section>
+
+      <section class="actions">
+        <button class="primary" id="cameraButton"><span>＋</span> 拍照</button>
+        <button class="secondary" id="libraryButton"><span>▧</span> 選取照片</button>
+        <input id="cameraInput" hidden type="file" accept="image/*" capture="environment">
+        <input id="libraryInput" hidden type="file" accept="image/*" multiple>
+      </section>
+
+      <label class="gps-option"><input id="gpsEnabled" type="checkbox" checked> 拍照時記錄目前座標</label>
+
+      <div class="notice" id="notice" role="status" hidden></div>
+
+      <section class="queue-card" id="queueSection" hidden>
+        <div class="section-heading"><div><p class="eyebrow">手機暫存</p><h2><span id="queueCount">0</span> 筆等待同步</h2></div><button id="syncButton">立即同步</button></div>
+        <div id="queueList" class="record-list"></div>
+      </section>
+
+      <section class="photo-section">
+        <div class="section-heading"><div><p class="eyebrow">雲端紀錄</p><h2>最近現勘照片</h2></div><button class="refresh" id="refreshButton">重新整理</button></div>
+        <div id="recordList" class="photo-grid"><p class="empty">正在讀取 Google Sheet…</p></div>
+      </section>
+
+      <nav class="bottom-nav"><button class="active">▤<span>現勘</span></button><button id="bottomCamera">＋<span>拍照</span></button><button id="bottomSync">↻<span>同步</span></button></nav>
+    </main>
+    <?!= include('JavaScript'); ?>
+  </body>
+</html>

@@ -1,0 +1,197 @@
+<script>
+(() => {
+  const DB_NAME = 'site-survey-offline-v1';
+  const STORE_NAME = 'pendingPhotos';
+  const state = { db: null, syncing: false, records: [] };
+  const $ = (id) => document.getElementById(id);
+
+  window.addEventListener('load', init);
+  window.addEventListener('online', () => { updateConnection(); syncQueue(); });
+  window.addEventListener('offline', updateConnection);
+
+  async function init() {
+    setDate();
+    bindEvents();
+    updateConnection();
+    try {
+      state.db = await openDatabase();
+      await renderQueue();
+    } catch (error) {
+      showNotice('手機離線儲存無法啟用：' + error.message, true);
+    }
+    loadAppInfo();
+    loadRecords();
+    if (navigator.onLine) syncQueue();
+  }
+
+  function bindEvents() {
+    $('cameraButton').onclick = () => $('cameraInput').click();
+    $('libraryButton').onclick = () => $('libraryInput').click();
+    $('bottomCamera').onclick = () => $('cameraInput').click();
+    $('syncButton').onclick = syncQueue;
+    $('bottomSync').onclick = syncQueue;
+    $('refreshButton').onclick = loadRecords;
+    $('cameraInput').onchange = (event) => queueFiles(event.target.files, event.target);
+    $('libraryInput').onchange = (event) => queueFiles(event.target.files, event.target);
+  }
+
+  function setDate() {
+    const now = new Date();
+    $('dateDay').textContent = String(now.getDate());
+    $('dateMonth').textContent = `${now.getMonth() + 1}月・${now.getFullYear()}`;
+    $('dateTitle').textContent = new Intl.DateTimeFormat('zh-TW', { year:'numeric', month:'long', day:'numeric' }).format(now);
+  }
+
+  function updateConnection() {
+    const node = $('connectionStatus');
+    node.textContent = navigator.onLine ? '● 網路正常' : '○ 離線暫存';
+    node.className = `connection ${navigator.onLine ? 'online' : 'offline'}`;
+  }
+
+  function loadAppInfo() {
+    google.script.run.withSuccessHandler((info) => {
+      $('accountName').textContent = info.userEmail || 'Google 帳號';
+    }).withFailureHandler((error) => showNotice(error.message, true)).getAppInfo();
+  }
+
+  function loadRecords() {
+    $('recordList').replaceChildren(makeNode('p', 'empty', '正在讀取 Google Sheet…'));
+    google.script.run.withSuccessHandler((records) => {
+      state.records = records || [];
+      renderRecords();
+    }).withFailureHandler((error) => {
+      $('recordList').replaceChildren(makeNode('p', 'empty', '目前無法讀取雲端紀錄'));
+      showNotice(error.message, true);
+    }).getRecentRecords(30);
+  }
+
+  async function queueFiles(fileList, input) {
+    const files = Array.from(fileList || []);
+    input.value = '';
+    if (!files.length || !state.db) return;
+    let position = null;
+    if ($('gpsEnabled').checked) position = await getPosition();
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      if (file.size > 15 * 1024 * 1024) {
+        showNotice(`${file.name} 超過 15 MB，未加入`, true);
+        continue;
+      }
+      const clientId = `${Date.now()}-${crypto.randomUUID()}`;
+      await putDraft({
+        clientId, file, fileName:file.name, mimeType:file.type,
+        description:file.name.replace(/\.[^.]+$/, ''),
+        latitude:position?.coords.latitude ?? null,
+        longitude:position?.coords.longitude ?? null,
+        coordinateSource:position ? 'DEVICE' : 'NONE',
+        capturedAt:new Date().toISOString(), status:'queued', error:'',
+      });
+    }
+    showNotice(`已保存 ${files.length} 張照片到手機`);
+    await renderQueue();
+    if (navigator.onLine) syncQueue();
+  }
+
+  function getPosition() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), { enableHighAccuracy:true, timeout:10000, maximumAge:30000 });
+    });
+  }
+
+  async function syncQueue() {
+    if (state.syncing || !navigator.onLine || !state.db) return;
+    const drafts = await getDrafts();
+    if (!drafts.length) return;
+    state.syncing = true;
+    showNotice(`正在同步 ${drafts.length} 筆資料…`);
+    for (const draft of drafts) {
+      try {
+        draft.status = 'syncing'; draft.error = '';
+        await putDraft(draft); await renderQueue();
+        const base64 = await fileToBase64(draft.file);
+        await callServer('saveSurveyPhoto', { ...draft, file:undefined, base64 });
+        await deleteDraft(draft.clientId);
+      } catch (error) {
+        draft.status = 'queued'; draft.error = error.message || '同步失敗';
+        await putDraft(draft);
+        if (!navigator.onLine) break;
+      }
+    }
+    state.syncing = false;
+    await renderQueue();
+    const remaining = await getDrafts();
+    showNotice(remaining.length ? `仍有 ${remaining.length} 筆等待同步` : '全部資料已同步至 Google Drive 與 Sheet', remaining.length > 0);
+    loadRecords();
+  }
+
+  function callServer(method, payload) {
+    return new Promise((resolve, reject) => google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[method](payload));
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = () => reject(new Error('無法讀取照片'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function renderQueue() {
+    const drafts = await getDrafts();
+    $('queueCount').textContent = String(drafts.length);
+    $('queueSection').hidden = drafts.length === 0;
+    const list = $('queueList'); list.replaceChildren();
+    drafts.forEach((draft) => {
+      const row = makeNode('div', 'queue-row');
+      const image = makeNode('img', 'queue-thumb'); image.src = URL.createObjectURL(draft.file); image.alt = '';
+      const copy = makeNode('div', 'queue-copy');
+      copy.append(makeNode('b', '', draft.description), makeNode('small', '', draft.status === 'syncing' ? '同步中…' : draft.error || '等待網路同步'));
+      const remove = makeNode('button', '', '移除');
+      remove.onclick = async () => { await deleteDraft(draft.clientId); renderQueue(); };
+      row.append(image, copy, remove); list.append(row);
+    });
+  }
+
+  function renderRecords() {
+    const list = $('recordList'); list.replaceChildren();
+    if (!state.records.length) return list.append(makeNode('p', 'empty', '目前還沒有雲端現勘照片'));
+    state.records.forEach((record) => {
+      const card = makeNode('a', 'photo-card');
+      card.href = record.driveUrl; card.target = '_blank'; card.rel = 'noopener';
+      card.append(makeNode('b', '', record.description || record.fileName || '現勘照片'));
+      const gpsText = record.latitude != null ? `${Number(record.latitude).toFixed(6)}, ${Number(record.longitude).toFixed(6)}` : '無座標';
+      card.append(makeNode('small', record.latitude != null ? 'gps' : '', gpsText));
+      list.append(card);
+    });
+  }
+
+  function showNotice(message, isError = false) {
+    const node = $('notice'); node.hidden = false; node.textContent = message; node.className = `notice${isError ? ' error' : ''}`;
+  }
+
+  function makeNode(tag, className = '', text = '') {
+    const node = document.createElement(tag); node.className = className; if (text) node.textContent = text; return node;
+  }
+
+  function openDatabase() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAME, { keyPath:'clientId' });
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  function transact(mode, action) {
+    return new Promise((resolve, reject) => {
+      const tx = state.db.transaction(STORE_NAME, mode); const store = tx.objectStore(STORE_NAME); const request = action(store);
+      request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+    });
+  }
+  const putDraft = (draft) => transact('readwrite', (store) => store.put(draft));
+  const getDrafts = () => transact('readonly', (store) => store.getAll());
+  const deleteDraft = (id) => transact('readwrite', (store) => store.delete(id));
+})();
+</script>
