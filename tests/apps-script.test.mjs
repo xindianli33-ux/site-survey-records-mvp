@@ -1,44 +1,9 @@
-import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import test from "node:test";
-
-const root = new URL("../apps-script/", import.meta.url);
-
-test("Apps Script backend is single-user and idempotent", async () => {
-  const [code, manifest] = await Promise.all([
-    readFile(new URL("Code.gs", root), "utf8"),
-    readFile(new URL("appsscript.json", root), "utf8").then(JSON.parse),
-  ]);
-  assert.equal(manifest.webapp.access, "MYSELF");
-  assert.equal(manifest.webapp.executeAs, "USER_DEPLOYING");
-  assert.match(code, /findRecord_\(sheet, payload\.clientId\)/);
-  assert.match(code, /LockService\.getScriptLock\(\)/);
-  assert.match(code, /folder\.createFile\(blob\)/);
-  assert.match(code, /sheet\.appendRow\(row\)/);
-});
-
-test("mobile client keeps an IndexedDB offline queue", async () => {
-  const [index, client] = await Promise.all([
-    readFile(new URL("Index.html", root), "utf8"),
-    readFile(new URL("JavaScript.html", root), "utf8"),
-  ]);
-  assert.match(index, /id="cameraButton" type="button"/);
-  assert.match(index, /id="cameraInput" hidden type="file" accept="image\/\*">/);
-  assert.match(client, /\$\('cameraButton'\)\.onclick = \(\) => \$\('cameraInput'\)\.click\(\)/);
-  assert.match(index, /離線可暫存/);
-  assert.match(client, /indexedDB\.open/);
-  assert.match(client, /window\.addEventListener\('online'/);
-  assert.match(client, /saveSurveyPhoto/);
-  assert.match(index, /photoDescription/);
-  assert.match(client, /readExifGps/);
-  assert.match(client, /compressImage/);
-  assert.match(client, /Promise\.race/);
-  assert.match(client, /typeof createImageBitmap === 'function'/);
-  assert.match(client, /照片保存失敗/);
-  assert.match(client, /瀏覽器定位逾時/);
-  assert.match(client, /網站定位權限遭拒/);
-  assert.match(client, /source:'EXIF'/);
-  assert.match(client, /已取得照片，請輸入文字說明/);
-  assert.match(client, /memoryDrafts:new Map/);
-  assert.match(client, /typeof dialog\.showModal/);
-});
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import test from 'node:test';
+const root=new URL('../apps-script/',import.meta.url);
+const read=n=>readFile(new URL(n,root),'utf8');
+test('public Apps Script creates one folder and Sheet per task',async()=>{const [code,manifest]=await Promise.all([read('Code.gs'),read('appsscript.json').then(JSON.parse)]);assert.equal(manifest.webapp.access,'ANYONE_ANONYMOUS');assert.equal(manifest.webapp.executeAs,'USER_DEPLOYING');assert.match(code,/root\.createFolder\(folderName\)/);assert.match(code,/SpreadsheetApp\.create/);assert.match(code,/FIELD_SURVEY_TASKS_V2/);assert.match(code,/\['日期', '時間', '概要', '照片說明', '緯度', '經度', '誤差範圍', '照片檔名', '照片連結'\]/)});
+test('photo naming and public links follow the agreed format',async()=>{const code=await read('Code.gs');assert.match(code,/`\$\{payload\.date\}-\$\{payload\.time\}/);assert.match(code,/ANYONE_WITH_LINK/);assert.match(code,/normalizeNumber_\(payload\.accuracy\) \|\| 0/);assert.match(code,/MAX_IMAGE_BYTES = 15/)});
+test('client selects originals and reads EXIF without device geolocation',async()=>{const [index,client]=await Promise.all([read('Index.html'),read('JavaScript.html')]);assert.match(index,/id="photoInput"/);assert.doesNotMatch(index,/capture=/);assert.doesNotMatch(index,/拍照/);assert.match(index,/exifr@7\.1\.3/);assert.match(index,/exifreader@4\.43\.0/);assert.match(client,/exifr\.parse/);assert.match(client,/ExifReader\.load/);assert.doesNotMatch(client,/navigator\.geolocation/);assert.match(client,/accuracy:zero/);assert.match(index,/概要（選填）/);assert.match(index,/照片說明（選填）/)});
+test('browser provides filters and card-table switch',async()=>{const [index,client]=await Promise.all([read('Index.html'),read('JavaScript.html')]);for(const id of ['keywordFilter','dateFrom','dateTo','coordinateFilter','sortOrder','cardViewButton','tableViewButton'])assert.match(index,new RegExp(`id="${id}"`));assert.match(client,/localStorage\.setItem\('surveyView'/);assert.match(client,/getTaskRecords/)});
